@@ -1,0 +1,99 @@
+diff --git a/Source/WebCore/Modules/streams/ReadableByteStreamController.cpp b/Source/WebCore/Modules/streams/ReadableByteStreamController.cpp
+index 00dcc4b894..97f0b58fe8 100644
+--- a/Source/WebCore/Modules/streams/ReadableByteStreamController.cpp
++++ b/Source/WebCore/Modules/streams/ReadableByteStreamController.cpp
+@@ -384,7 +384,8 @@ ExceptionOr<void> ReadableByteStreamController::enqueue(JSDOMGlobalObject& globa
+     Ref stream = m_stream.get();
+     if (stream->defaultReader()) {
+         processReadRequestsUsingQueue(globalObject);
+-        if (!stream->getNumReadRequests()) {
++        // Fulfilling read requests runs script, which may have released the reader.
++        if (!stream->defaultReader() || !stream->getNumReadRequests()) {
+             ASSERT(m_pendingPullIntos.isEmpty());
+             enqueueChunkToQueue(transferredBufferOrException.releaseReturnValue(), byteOffset, byteLength);
+         } else {
+@@ -469,7 +470,10 @@ void ReadableByteStreamController::enqueueDetachedPullIntoToQueue(JSDOMGlobalObj
+ // https://streams.spec.whatwg.org/#readable-byte-stream-controller-shift-pending-pull-into
+ ReadableByteStreamController::PullIntoDescriptor ReadableByteStreamController::shiftPendingPullInto()
+ {
+-    ASSERT(!m_byobRequest);
++    // Script run from a promise resolution inside a fulfil loop may have created a BYOB request over the
++    // descriptor being shifted; make the spec's assertion true instead of leaving that request dangling.
++    invalidateByobRequest();
++    RELEASE_ASSERT(!m_pendingPullIntos.isEmpty());
+     return m_pendingPullIntos.takeFirst();
+ }
+ 
+@@ -824,7 +828,8 @@ JSC::JSValue ReadableByteStreamController::storedError() const
+ // https://streams.spec.whatwg.org/#readable-byte-stream-controller-respond
+ ExceptionOr<void> ReadableByteStreamController::respond(JSDOMGlobalObject& globalObject, size_t bytesWritten)
+ {
+-    ASSERT(!m_pendingPullIntos.isEmpty());
++    if (m_pendingPullIntos.isEmpty())
++        return Exception { ExceptionCode::TypeError, "no pending pull-into request"_s };
+     auto& firstDescriptor = m_pendingPullIntos.first();
+     auto state = protect(stream())->state();
+     if (state == ReadableStream::State::Closed) {
+@@ -852,7 +857,8 @@ ExceptionOr<void> ReadableByteStreamController::respond(JSDOMGlobalObject& globa
+ // https://streams.spec.whatwg.org/#readable-byte-stream-controller-respond-with-new-view
+ ExceptionOr<void> ReadableByteStreamController::respondWithNewView(JSDOMGlobalObject& globalObject, JSC::ArrayBufferView& view)
+ {
+-    ASSERT(!m_pendingPullIntos.isEmpty());
++    if (m_pendingPullIntos.isEmpty())
++        return Exception { ExceptionCode::TypeError, "no pending pull-into request"_s };
+     ASSERT(!view.isDetached());
+ 
+     auto& firstDescriptor = m_pendingPullIntos.first();
+@@ -918,7 +924,8 @@ void ReadableByteStreamController::respondInClosedState(JSDOMGlobalObject& globa
+ 
+     Ref stream = m_stream.get();
+     if (RefPtr byobReader = stream->byobReader()) {
+-        while (stream->getNumReadIntoRequests() > 0) {
++        // commitPullIntoDescriptor runs script; the reader may be released or swapped in between.
++        while (stream->byobReader() == byobReader && !m_pendingPullIntos.isEmpty() && stream->getNumReadIntoRequests() > 0) {
+             auto pullIntoDescriptor = shiftPendingPullInto();
+             commitPullIntoDescriptor(globalObject, pullIntoDescriptor);
+         }
+diff --git a/Source/WebCore/Modules/streams/ReadableStream.cpp b/Source/WebCore/Modules/streams/ReadableStream.cpp
+index 6d1fd10986..19bf6a5ca8 100644
+--- a/Source/WebCore/Modules/streams/ReadableStream.cpp
++++ b/Source/WebCore/Modules/streams/ReadableStream.cpp
+@@ -575,17 +575,17 @@ Ref<DOMPromise> ReadableStream::cancel(JSDOMGlobalObject& globalObject, JSC::JSV
+ // https://streams.spec.whatwg.org/#readable-stream-get-num-read-into-requests
+ size_t ReadableStream::getNumReadIntoRequests() const
+ {
+-    ASSERT(m_byobReader);
+-    auto* byobReader = m_byobReader.get();
+-    return byobReader->readIntoRequestsSize();
++    // The reader may have been released by script run from a promise resolution.
++    RefPtr byobReader = m_byobReader.get();
++    return byobReader ? byobReader->readIntoRequestsSize() : 0;
+ }
+ 
+ // https://streams.spec.whatwg.org/#readable-stream-get-num-read-requests
+ size_t ReadableStream::getNumReadRequests() const
+ {
+-    ASSERT(m_defaultReader);
+-    auto* defaultReader = m_defaultReader.get();
+-    return defaultReader->getNumReadRequests();
++    // The reader may have been released by script run from a promise resolution.
++    RefPtr defaultReader = m_defaultReader.get();
++    return defaultReader ? defaultReader->getNumReadRequests() : 0;
+ }
+ 
+ // https://streams.spec.whatwg.org/#readable-stream-add-read-into-request
+diff --git a/Source/WebCore/Modules/streams/ReadableStreamBYOBRequest.cpp b/Source/WebCore/Modules/streams/ReadableStreamBYOBRequest.cpp
+index de81910f31..508505e8f9 100644
+--- a/Source/WebCore/Modules/streams/ReadableStreamBYOBRequest.cpp
++++ b/Source/WebCore/Modules/streams/ReadableStreamBYOBRequest.cpp
+@@ -80,6 +80,10 @@ ExceptionOr<void> ReadableStreamBYOBRequest::respondWithNewView(JSDOMGlobalObjec
+     RefPtr controller = m_controller.get();
+     if (!controller)
+         return Exception { ExceptionCode::TypeError, "controller is undefined"_s };
++    // Match respond(): a request whose own view is gone or detached is stale and must not reach the controller.
++    RefPtr ownView = m_view;
++    if (!ownView || ownView->isDetached())
++        return Exception { ExceptionCode::TypeError, "buffer is detached"_s };
+     if (view.isDetached())
+         return Exception { ExceptionCode::TypeError, "buffer is detached"_s };
+     return controller->respondWithNewView(globalObject, view);

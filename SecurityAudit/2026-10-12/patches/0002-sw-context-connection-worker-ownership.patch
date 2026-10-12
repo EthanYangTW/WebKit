@@ -1,0 +1,119 @@
+diff --git a/Source/WebCore/workers/service/server/SWServerToContextConnection.cpp b/Source/WebCore/workers/service/server/SWServerToContextConnection.cpp
+index bdbdeca495..35c32c2052 100644
+--- a/Source/WebCore/workers/service/server/SWServerToContextConnection.cpp
++++ b/Source/WebCore/workers/service/server/SWServerToContextConnection.cpp
+@@ -50,45 +50,55 @@ SWServer* SWServerToContextConnection::server() const
+     return m_server.get();
+ }
+ 
++// A context connection may only act on the workers it runs. Identifiers are global and sequential, so a
++// lookup by identifier alone would let one connection reach another site's workers.
++SWServerWorker* SWServerToContextConnection::ownedWorkerForIdentifier(ServiceWorkerIdentifier identifier)
++{
++    RefPtr worker = SWServerWorker::existingWorkerForIdentifier(identifier);
++    if (!worker || worker->contextConnection() != this || worker->topRegistrableDomain() != registrableDomain())
++        return nullptr;
++    return worker.get();
++}
++
+ void SWServerToContextConnection::scriptContextFailedToStart(const std::optional<ServiceWorkerJobDataIdentifier>& jobDataIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, const String& message)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->scriptContextFailedToStart(jobDataIdentifier, message);
+ }
+ 
+ void SWServerToContextConnection::scriptContextStarted(const std::optional<ServiceWorkerJobDataIdentifier>& jobDataIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, bool doesHandleFetch)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->scriptContextStarted(jobDataIdentifier, doesHandleFetch);
+ }
+     
+ void SWServerToContextConnection::didFinishInstall(const std::optional<ServiceWorkerJobDataIdentifier>& jobDataIdentifier, ServiceWorkerIdentifier serviceWorkerIdentifier, bool wasSuccessful)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->didFinishInstall(jobDataIdentifier, wasSuccessful);
+ }
+ 
+ void SWServerToContextConnection::didFinishActivation(ServiceWorkerIdentifier serviceWorkerIdentifier)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->didFinishActivation();
+ }
+ 
+ void SWServerToContextConnection::setServiceWorkerHasPendingEvents(ServiceWorkerIdentifier serviceWorkerIdentifier, bool hasPendingEvents)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->setHasPendingEvents(hasPendingEvents);
+ }
+ 
+ void SWServerToContextConnection::workerTerminated(ServiceWorkerIdentifier serviceWorkerIdentifier)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->contextTerminated();
+ }
+ 
+ void SWServerToContextConnection::matchAll(ServiceWorkerIdentifier serviceWorkerIdentifier, const ServiceWorkerClientQueryOptions& options, CompletionHandler<void(Vector<WebCore::ServiceWorkerClientData>&&)>&& callback)
+ {
+-    RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier);
++    RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier);
+     if (!worker) {
+         callback({ });
+         return;
+@@ -99,7 +109,7 @@ void SWServerToContextConnection::matchAll(ServiceWorkerIdentifier serviceWorker
+ 
+ void SWServerToContextConnection::findClientByVisibleIdentifier(ServiceWorkerIdentifier serviceWorkerIdentifier, const String& clientIdentifier, CompletionHandler<void(std::optional<WebCore::ServiceWorkerClientData>&&)>&& callback)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->findClientByVisibleIdentifier(clientIdentifier, WTF::move(callback));
+     else
+         callback({ });
+@@ -107,26 +117,26 @@ void SWServerToContextConnection::findClientByVisibleIdentifier(ServiceWorkerIde
+ 
+ void SWServerToContextConnection::claim(ServiceWorkerIdentifier serviceWorkerIdentifier, CompletionHandler<void(std::optional<ExceptionData>&&)>&& callback)
+ {
+-    RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier);
++    RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier);
+     RefPtr server = worker ? worker->server() : nullptr;
+     callback(server ? server->claim(*worker) : std::nullopt);
+ }
+ 
+ void SWServerToContextConnection::setScriptResource(ServiceWorkerIdentifier serviceWorkerIdentifier, URL&& scriptURL, ServiceWorkerContextData::ImportedScript&& script)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(serviceWorkerIdentifier))
+         worker->setScriptResource(WTF::move(scriptURL), WTF::move(script));
+ }
+ 
+ void SWServerToContextConnection::didFailHeartBeatCheck(ServiceWorkerIdentifier identifier)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(identifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(identifier))
+         worker->didFailHeartBeatCheck();
+ }
+ 
+ void SWServerToContextConnection::setAsInspected(ServiceWorkerIdentifier identifier, bool isInspected)
+ {
+-    if (RefPtr worker = SWServerWorker::existingWorkerForIdentifier(identifier))
++    if (RefPtr worker = ownedWorkerForIdentifier(identifier))
+         worker->setAsInspected(isInspected);
+ }
+ 
+diff --git a/Source/WebCore/workers/service/server/SWServerToContextConnection.h b/Source/WebCore/workers/service/server/SWServerToContextConnection.h
+index b0f8e2e65d..d1da5c48b3 100644
+--- a/Source/WebCore/workers/service/server/SWServerToContextConnection.h
++++ b/Source/WebCore/workers/service/server/SWServerToContextConnection.h
+@@ -115,6 +115,7 @@ public:
+ 
+ protected:
+     WEBCORE_EXPORT SWServerToContextConnection(SWServer&, Site&&, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier);
++    WEBCORE_EXPORT SWServerWorker* ownedWorkerForIdentifier(ServiceWorkerIdentifier);
+ 
+ private:
+     WeakPtr<WebCore::SWServer> m_server;
