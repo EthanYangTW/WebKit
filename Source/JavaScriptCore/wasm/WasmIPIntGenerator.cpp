@@ -2986,8 +2986,10 @@ std::unique_ptr<FunctionIPIntMetadataGenerator> IPIntGenerator::finalize()
 {
     ASSERT(!m_metadata->loopDepth());
 
-    if (m_usesRethrow)
-        m_metadata->m_numAlignedRethrowSlots = roundUpToMultipleOf<2>(m_maxTryDepth);
+    // IPInt only needs these slots when the function rethrows, but BBQ sizes its frame from
+    // maxFrameSizeInV128() and reserves one implicit slot per enclosing catch block whether or not the
+    // body rethrows, so the slots must be counted whenever the function has catch blocks at all.
+    m_metadata->m_numAlignedRethrowSlots = roundUpToMultipleOf<2>(m_maxTryDepth);
 
     // Pad the metadata to an even number since we will allocate the rounded up size
     if (m_metadata->m_numLocals % 2)
