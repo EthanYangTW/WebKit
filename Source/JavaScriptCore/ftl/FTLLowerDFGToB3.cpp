@@ -15437,6 +15437,11 @@ IGNORE_CLANG_WARNINGS_END
 
         unsigned numberOfArgumentsToSkip = data->offset;
         LValue lengthIncludingThis = lowInt32(m_node->child1());
+        // The copy below starts numberOfArgumentsToSkip slots into the arguments, so the count must shrink by
+        // the same amount (as SpeculativeJIT::compileForwardVarargs does); the unsigned limit check then also
+        // rejects a count smaller than the offset.
+        if (numberOfArgumentsToSkip)
+            lengthIncludingThis = m_out.sub(lengthIncludingThis, m_out.constInt32(numberOfArgumentsToSkip));
 
         LValue length = m_out.sub(lengthIncludingThis, m_out.int32One);
         speculate(

@@ -155,7 +155,7 @@ private:
                     dataLogLnIf(verbose, "    Escape at ", node);
                     return;
                 }
-                if (node->child2() == candidate)
+                if (node->child3() == candidate)
                     lastUserIndex = nodeIndex;
                 break;
                 
