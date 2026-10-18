@@ -1184,6 +1184,8 @@ ArrayStorage* JSObject::enterDictionaryIndexingModeWhenArrayStorageAlreadyExists
     RELEASE_ASSERT(newButterfly);
     newButterfly->arrayStorage()->m_indexBias = 0;
     newButterfly->arrayStorage()->setVectorLength(0);
+    // Every value now lives in the sparse map; resizeArray copied the old header, so reset the count too.
+    newButterfly->arrayStorage()->m_numValuesInVector = 0;
     newButterfly->arrayStorage()->m_sparseMap.set(vm, this, map);
     setButterfly(vm, newButterfly);
     
