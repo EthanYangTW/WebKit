@@ -150,6 +150,17 @@ void JSFinalizationRegistry::reconcileWeakReferencesAtGCEnd(VM& vm, CollectionSc
         return !bucket.value.size();
     });
 
+    // Holdings whose target died before their token are parked under the raw token pointer. Once the token
+    // dies too, that key must not stay in the map: it is never dereferenced, but a cell later allocated at the
+    // same address would otherwise be treated as the token and unregister() would discard the holdings.
+    m_deadRegistrations.removeIf([&] (auto& bucket) -> bool {
+        ASSERT(bucket.value.size());
+        if (vm.heap.isMarked(bucket.key))
+            return false;
+        m_noUnregistrationDead.appendVector(bucket.value);
+        return true;
+    });
+
     if (!m_hasAlreadyScheduledWork && (readiedCell || deadCount(locker))) {
         auto weakTicket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, this, { });
         bool queued = vm.deferredWorkTimer->scheduleWorkSoonIfActive(weakTicket, [this](DeferredWorkTimer::Ticket&) {
