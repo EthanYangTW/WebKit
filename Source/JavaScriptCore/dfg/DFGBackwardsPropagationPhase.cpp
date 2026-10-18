@@ -551,10 +551,15 @@ private:
         }
 
         case LogicalNot: {
+            // The result may only be used as an int32, but the truthiness of the operand depends on its full
+            // value: a product or sum that wraps to zero, or a quotient truncated to zero, is falsy where the
+            // real value is not. So the operand is always used as a number, whatever flags the negation has.
+            flags |= NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNaNOrInfinity;
             switch (node->child1()->op()) {
             case ValueMod:
             case ArithMod:
-                // We can clear this flag since Mod and Div never produces Infinity. It is only NaN.
+                // We can clear this flag since Mod and Div never produces Infinity. It is only NaN, which is as
+                // falsy as the zero an unchecked modulo produces instead.
                 flags &= ~NodeBytecodeNeedsNaNOrInfinity;
                 break;
             default:
