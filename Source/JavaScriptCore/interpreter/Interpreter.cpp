@@ -691,12 +691,21 @@ void Interpreter::getStackTrace(JSCell* owner, Vector<StackFrame>& results, size
 String Interpreter::stackTraceAsString(VM& vm, const Vector<StackFrame>& stackTrace)
 {
     // FIXME: JSStringJoiner could be more efficient than StringBuilder here.
-    StringBuilder builder;
+    // Both the number of frames (Error.stackTraceLimit) and the text of each frame (function names,
+    // source URLs) are controlled by the script, so their total can exceed String::MaxLength. Keep the
+    // frames that fit and drop the rest instead of letting the builder crash on overflow.
+    StringBuilder builder(OverflowPolicy::RecordOverflow);
     for (unsigned i = 0; i < stackTrace.size(); i++) {
-        builder.append(String(stackTrace[i].toString(vm)));
-        if (i != stackTrace.size() - 1)
+        String frame = stackTrace[i].toString(vm);
+        uint64_t lengthWithFrame = static_cast<uint64_t>(builder.length()) + frame.length() + (i ? 1 : 0);
+        if (lengthWithFrame > String::MaxLength) [[unlikely]]
+            break;
+        if (i)
             builder.append('\n');
+        builder.append(frame);
     }
+    if (builder.hasOverflowed()) [[unlikely]]
+        return emptyString();
     return builder.toString();
 }
 
