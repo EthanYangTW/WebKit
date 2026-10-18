@@ -13921,7 +13921,12 @@ auto ByteCodeParser::handleArraySort(Node* callee, Operand resultOperand, CallVa
         Node* i = get(tmpI);
         Node* pivot = addToGraph(GetCellButterflySlot, OpInfo(arrayMode.asWord()), get(tmpScratch), i);
         emitExitOK();
-        set(tmpPivot, pivot, ImmediateNakedSet);
+        Node* pivotSet = set(tmpPivot, pivot, ImmediateNakedSet);
+        // The pivot is written back into the scratch and then into the array's butterfly exactly as it was
+        // read, so it must keep its JSValue representation. The same value is also passed to the comparator,
+        // whose double arithmetic would otherwise vote the tmp into double format, and a ValueRep of that
+        // double is a boxed double, which violates the Int32 indexing invariant on commit.
+        pivotSet->variableAccessData()->mergeShouldNeverUnbox(true);
         emitExitOK();
         Node* jInit = addToGraph(ArithSub, OpInfo(Arith::Unchecked), OpInfo(SpecInt32Only), Edge(i, Int32Use), Edge(jsConstant(jsNumber(1)), Int32Use));
         set(tmpJ, jInit, ImmediateNakedSet);
