@@ -548,7 +548,8 @@ bool JSArray::fastFill(VM& vm, unsigned startIndex, unsigned endIndex, JSValue v
         convertFromCopyOnWrite(vm);
 
     IndexingType type = indexingType();
-    if (!(type & IsArray) || hasAnyArrayStorage(type))
+    // ArrayClass (Array.prototype) has no indexed storage to convert, so it must take the generic path too.
+    if (!(type & IsArray) || type == ArrayClass || hasAnyArrayStorage(type))
         return false;
     IndexingType nextType = leastUpperBoundOfIndexingTypeAndValue(type, value);
     if (hasArrayStorage(nextType))
