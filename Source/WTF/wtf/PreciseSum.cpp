@@ -546,20 +546,34 @@ double XsumSmall::compute()
         }
 
         intv = XSUM_SIGN_MASK;
-        ivalue = -ivalue;
-        if ((ivalue & 3) == 3)
+        ivalue = -ivalue; // ivalue now holds the absolute value.
+
+        // The lower chunks are non-negative, so they subtract from the magnitude: the two extra bits of
+        // ivalue together with the lower bits decide the rounding as follows.
+        if ((ivalue & 3) == 3) {
+            // Extra bits are 11: the remainder adds more than 1/2 ulp, round away from zero.
             shouldRoundAwayFromZero = true;
-        if (!lower) {
-            while (j > 0) {
-                j -= 1;
-                if (m_smallAccumulator.chunk[j]) {
-                    lower = 1;
-                    break;
+        } else if ((ivalue & 3) <= 1) {
+            // Extra bits are 00 or 01: the remainder adds at most 1/4 ulp or subtracts less than 1/4 ulp.
+            shouldRoundAwayFromZero = false;
+        } else if (!(ivalue & 4)) {
+            // Low mantissa bit is 0 (even) and extra bits are 10: the remainder adds at most 1/2 ulp, ties go to even.
+            shouldRoundAwayFromZero = false;
+        } else {
+            // Low mantissa bit is 1 (odd) and extra bits are 10: round away from zero only on an exact tie,
+            // which requires every lower bit to be zero.
+            if (!lower) {
+                while (j > 0) {
+                    j -= 1;
+                    if (m_smallAccumulator.chunk[j]) {
+                        lower = 1;
+                        break;
+                    }
                 }
             }
+            if (!lower)
+                shouldRoundAwayFromZero = true;
         }
-        if (!lower)
-            shouldRoundAwayFromZero = true;
     }
 
     if (shouldRoundAwayFromZero) {
