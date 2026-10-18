@@ -1724,6 +1724,7 @@ static JSBigInt::Digit subtractDigitAndPropagate(std::span<JSBigInt::Digit> x, J
 
 static void copyAndZeroExtend(std::span<JSBigInt::Digit> destination, std::span<const JSBigInt::Digit> source)
 {
+    RELEASE_ASSERT(destination.size() >= source.size());
     memcpySpan(destination.first(source.size()), source);
     zeroSpan(destination.subspan(source.size()));
 }
