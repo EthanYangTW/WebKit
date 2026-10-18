@@ -30,6 +30,25 @@ function scopedDefineDelete(a) {
 }
 noInline(scopedDefineDelete);
 
+// Beyond the passed arguments the property is new, so a partial descriptor makes it non-configurable
+// and the delete must fail; with configurable: true it must succeed, exactly as for DirectArguments.
+function scopedDefineDeleteBeyond(a, configurable) {
+    function capture() { return a; }
+    Object.defineProperty(arguments, "2", { value: 9, configurable });
+    const before = arguments[2];
+    delete arguments[2];
+    return before + ":" + arguments[2] + ":" + (2 in arguments) + ":" + arguments.length;
+}
+noInline(scopedDefineDeleteBeyond);
+
+function directDefineDeleteBeyond(a, configurable) {
+    Object.defineProperty(arguments, "2", { value: 9, configurable });
+    const before = arguments[2];
+    delete arguments[2];
+    return before + ":" + arguments[2] + ":" + (2 in arguments) + ":" + arguments.length;
+}
+noInline(directDefineDeleteBeyond);
+
 function scopedLengthProperty(a) {
     function capture() { return a; }
     arguments.length = 100;
@@ -43,6 +62,9 @@ for (let i = 0; i < 1e4; ++i) {
     shouldBe(scoped(), "0::0");
     shouldBe(scopedIterator(1, 2, 3, 4), 4);
     shouldBe(scopedDefineDelete(1, 2, 3), "9:undefined:false:3");
-    shouldBe(scopedDefineDelete(1), "9:undefined:false:1");
+    shouldBe(scopedDefineDeleteBeyond(1, false), directDefineDeleteBeyond(1, false));
+    shouldBe(scopedDefineDeleteBeyond(1, false), "9:9:true:2");
+    shouldBe(scopedDefineDeleteBeyond(1, true), directDefineDeleteBeyond(1, true));
+    shouldBe(scopedDefineDeleteBeyond(1, true), "9:undefined:false:2");
     shouldBe(scopedLengthProperty(1, 2, 3, 4, 5), undefined);
 }
