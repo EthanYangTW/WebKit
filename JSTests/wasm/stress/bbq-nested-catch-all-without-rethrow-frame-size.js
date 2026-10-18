@@ -9,10 +9,12 @@ function section(id, bytes) { return [id, ...uleb(bytes.length), ...bytes]; }
 function vec(items) { return [...uleb(items.length), ...items.flat()]; }
 function str(s) { return [...uleb(s.length), ...Array.from(s, c => c.charCodeAt(0))]; }
 
+// Each level is `try (call the import) catch_all <next level> end`, so the catch blocks nest inside each
+// other (which is what consumes BBQ's implicit slots) while only the outermost try body ever runs.
 function body(depth) {
     if (!depth)
         return [0x10, 0]; // call the import
-    return [0x06, 0x40, 0x19, ...body(depth - 1), 0x0b]; // try (void) catch_all ... end
+    return [0x06, 0x40, 0x10, 0, 0x19, ...body(depth - 1), 0x0b];
 }
 let calls = 0;
 for (const depth of [22, 23, 40, 80]) {
