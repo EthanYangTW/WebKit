@@ -229,8 +229,13 @@ String StackFrame::functionName(VM& vm) const
             if (name.isNull())
                 return emptyString();
 
-            if (jsFrame.m_isAsyncFrame)
-                return makeString("async "_s, name);
+            if (jsFrame.m_isAsyncFrame) {
+                // The name is script-controlled and can be close to String::MaxLength on its own.
+                String asyncName = tryMakeString("async "_s, name);
+                if (!asyncName) [[unlikely]]
+                    return name;
+                return asyncName;
+            }
 
             return name;
         },
@@ -288,11 +293,18 @@ String StackFrame::toString(VM& vm) const
     String fullSourceURL = this->sourceURLStripped(vm);
     auto sourceURL = truncateLongDataURL(fullSourceURL);
 
+    // The function name and the source URL are both script-controlled, so their combination can exceed
+    // String::MaxLength; fall back to the bare function name rather than crashing in makeString.
+    String result;
     if (sourceURL.isEmpty() || !hasLineAndColumnInfo())
-        return makeString(functionName, '@', sourceURL);
-
-    auto lineColumn = computeLineAndColumn();
-    return makeString(functionName, '@', sourceURL, ':', lineColumn.line, ':', lineColumn.column);
+        result = tryMakeString(functionName, '@', sourceURL);
+    else {
+        auto lineColumn = computeLineAndColumn();
+        result = tryMakeString(functionName, '@', sourceURL, ':', lineColumn.line, ':', lineColumn.column);
+    }
+    if (!result) [[unlikely]]
+        return functionName;
+    return result;
 }
 
 } // namespace JSC
