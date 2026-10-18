@@ -220,8 +220,17 @@ TemporalInstant* TemporalInstant::fromEpochMilliseconds(JSGlobalObject* globalOb
         return nullptr;
     }
 
+    // fromEpochMilliseconds takes an int64_t, and converting a double outside that range is undefined behavior.
+    // Such values are far outside the ±8.64e15 millisecond range of a valid instant, so reject them here; values
+    // that fit are range-checked exactly by Step 4 below. 2^63 is representable as a double, INT64_MAX is not.
+    static constexpr double int64Bound = 9223372036854775808.0; // 2^63
+    if (std::abs(epochMilliseconds) >= int64Bound) [[unlikely]] {
+        throwRangeError(globalObject, scope, makeString(epochMilliseconds, " epoch milliseconds is outside of supported range for Temporal.Instant"_s));
+        return nullptr;
+    }
+
     // Step 3: Let epochNanoseconds be epochMilliseconds × 10^6ℤ.
-    ISO8601::ExactTime exactTime = ISO8601::ExactTime::fromEpochMilliseconds(epochMilliseconds);
+    ISO8601::ExactTime exactTime = ISO8601::ExactTime::fromEpochMilliseconds(static_cast<int64_t>(epochMilliseconds));
 
     // Step 4: If IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
     if (!exactTime.isValid()) [[unlikely]] {
