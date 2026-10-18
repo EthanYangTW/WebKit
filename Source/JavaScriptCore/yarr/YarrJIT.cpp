@@ -2365,7 +2365,13 @@ class YarrGenerator final : public YarrJITInfo {
 
         if (term->m_withOptionalLineTerminator) {
             // Equivalent to (?=(?:\r\n|\n|\r|\u2028|\u2029)?(?-m:$))
-            ASSERT(m_direction == Forward);
+            if (m_direction == Backward) [[unlikely]] {
+                // The checks below read the character at the assertion position and compare the index against
+                // the end of the input with forward-direction arithmetic, which is wrong inside a lookbehind.
+                // Leave such patterns to the interpreter, which handles both directions.
+                m_failureReason = JITFailureReason::Lookbehind;
+                return;
+            }
 
             MacroAssembler::JumpList success;
 
